@@ -2,6 +2,7 @@
 
 a simple way of tracking progress
 
+HMM
 ## Usage
 
 * To debug, run `npm run debug`  

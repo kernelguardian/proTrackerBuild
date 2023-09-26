@@ -1,0 +1,592 @@
+Skip to content
+DEV Community
+Search...
+
+Log in
+Create account
+
+13
+Jump to Comments
+30
+Save
+
+Cover image for Build and Publish a Multi-Platform Electron App on GitHub
+Erik Hofer
+Erik Hofer
+Posted on 31 Dec 2020 • Updated on 29 Apr 2021
+
+
+28
+
+3
+Build and Publish a Multi-Platform Electron App on GitHub
+#
+electron
+#
+github
+#
+javascript
+#
+tutorial
+Introduction
+Create Electron Application
+Build on Linux, Windows and macOS
+Publish Release to GitHub
+Draft Releases
+Outlook
+Introduction
+I recently dived into Electron for a hobby project. I like the approach of using web technologies to create the UI and shipping a native application to all platforms.
+
+For a Proof of Concept, I wanted to actually set up the process of building and distributing such an application on GitHub. It was a lot of trial and error to finally get there. Because of this, I documented my learnings in this tutorial. The final setup I came up with is actually surprisingly simple.
+
+You can find the complete example here:
+
+GitHub logo erikhofer / electron-publish-example
+Example repository for building and publishing a multi-platform Electron app
+Create Electron Application
+We are going to use Electron Forge for creating the example application.
+npx create-electron-app electron-publish-example
+cd electron-publish-example
+npm start
+We can now see our example application in a native window.
+
+Example App
+
+The distributable packages can be built with the following command.
+npm run make
+This will only build package formats that are supported by your operating system. For more information see Electron Forge Makers.
+
+Build on Linux, Windows and macOS
+Ok, so how do we build the application for other platforms? Luckily, GitHub provides a free and easy way to do this. We start by creating an empty repository and pushing our example code. I assume that you know the basics of Git. Everything we do from now on needs to be pushed to GitHub.
+git init
+git add .
+git commit -m "Create example app"
+git branch -M main
+git remote add origin https://github.com/erikhofer/electron-publish-example.git
+git push -u origin main
+We then create a new file .github/workflows/build.yml with the follwoing content.
+name: Build
+on: [push, pull_request]
+
+jobs:
+  build_on_linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: build
+      run: npm run make
+
+  build_on_mac:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: build
+      run: npm run make
+
+  build_on_win:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: build
+      run: npm run make
+It basically defines the same job three times for different operating systems. The workflow is executed for all branches and for pull requests to verify that the application can still be built after making changes.
+
+After pushing the file, we go to the "Actions" tab of the repository (example). We can see our newly created workflow running. Click on it to see the individual tasks and wait for them to finish.
+
+Alt Text
+
+That's it! 🚀 We are now building a native application on Windows, Linux and macOS.
+
+Publish Release to GitHub
+Fine, now how do we get access to the distributable files? We could set up artifact uploading for this. While this is useful for developers, it is not sufficient for providing the application to users. For that, we want to utilize GitHub releases.
+
+Shipping
+
+A release is based on a Git tag. It has a descriptive text (e.g. changelog) and can have files attached to it. That's exactly what we need.
+
+Electron Forge provides a GitHub publisher that does all the work for us. We need to install it in our example project.
+npm install -D @electron-forge/publisher-github
+Then we add the following configuration to the package.json file (make sure to adapt this to your repository).
+{
+...
+  "config": {
+    "forge": {
+    ...
+      "publishers": [
+        {
+          "name": "@electron-forge/publisher-github",
+          "config": {
+            "repository": {
+              "owner": "erikhofer",
+              "name": "electron-publish-example"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+Finally, we create a second workflow .github/workflows/release.yml with the following content.
+name: Release
+on:
+  release:
+    types:
+      - created
+
+jobs:
+
+  publish_on_linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2       
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+
+  publish_on_mac:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+
+  publish_on_win:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2       
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+It is basically the same as build.yaml but uses the publish script (make is not needed, this would build the app twice). It also accesses the GITHUB_TOKEN and is only executed for created releases.
+
+After pushing all changes, we can go to the "Releases" section in the "Code" tab of the repository and click "Create a new release". As "Tag version" we chose "v1.0.0" and click "Publish release". In the "Actions" tab we can now see that our newly created workflow is executed.
+
+After it has finished, we go back to our release (example). It should now have the packaged application for all platforms attached.
+
+Release
+
+Draft Releases
+So far we pushed a tag and then manually created a release via the GitHub website. With this approach, the release is published immediately and the files are attached later—assuming the action is executed successfully. If something goes wrong, watchers have already been notified about the release via email.
+
+Ideally, we want to draft a release, attach the application files and then publish, if everything looks good. There is, however, a caveat.
+
+The release event is not triggered for draft releases. (Source)
+
+That means that if we create a draft release and then publish it, the created activity is never detected. If we use published instead, we still have the same behavior as before.
+
+We can solve this by letting Electron Forge create the release. For that, we first change the workflow so that it is executed for all version tags.
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+This is sufficient for automatically creating releases. Additionally, we can now configure the publisher to create a draft instead.
+"publishers": [
+  {
+    "name": "@electron-forge/publisher-github",
+    "config": {
+      "repository": {
+        "owner": "erikhofer",
+        "name": "hello-electron"
+      },
+      "draft": true
+    }
+  }
+]
+To create tags, we can utilize the npm version command. It automatically updates the package.json and package-lock.json. Let's create a new version 1.1.0.
+npm version minor
+git push --follow-tags
+⚠ Make sure to push the created tag to GitHub. By default, Git does not push tags.
+
+After the workflow has finished, we go to the releases page again. We can now see the automatically created draft release.
+
+Draft Release
+
+If everything looks fine, click on "Edit", enter a description and click "Publish release". We now have a proper setup for distributing our multi-platform Electron application. ✨
+
+Outlook
+If we actually want to pubslish a software that is used by the public, we need to address code signing as the next step. It is a security mechanism and at least on macOS, there is no practical way around it. It is also needed for auto-updating the application on other platforms.
+
+Electron Forge and other tools have convenient built-in support for the code signing process. But be aware that certificates need to be purchased with an anual fee.
+
+Speaking of auto-updating, this is an interesting topic to look into next. Now that we have a setup to host our binaries via GitHub releases, we can also use this for update distribution. There is even a completely free service for open source applications. For more information, take a look into the Electron Forge docs.
+
+Top comments (13)
+
+Subscribe
+pic
+Add to the discussion
+ 
+ 
+greggman profile image
+Greggman
+•
+28 Mar 22 • Edited on 28 Mar
+
+If I understand correctly you probably want to change npm install to npm ci. npm install will use the latest compatible dependencies where as npm ci will use what's in package-lock.json.
+
+
+2
+ likes
+Like
+Reply
+ 
+ 
+erikhofer profile image
+Erik Hofer 
+•
+15 Apr 22
+
+Yeah, that is a good hint! :)
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+abulka profile image
+Andy Bulka
+•
+18 Apr 21
+
+Thanks for a great article. You have a typo in the use of 'draft' - which needs to be outside the repository json config, not inside it. It should look like:
+"publishers": [
+  {
+    "name": "@electron-forge/publisher-github",
+    "config": {
+      "repository": {
+        "owner": "erikhofer",
+        "name": "hello-electron"
+      },
+    "draft": true
+    }
+  }
+]
+Also, as you are no doubt aware, there is a shorthand way of specifying jobs for all operating systems, which means a much shorter yml workflow file and no duplication of lines needed.
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v2       
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+Hoping you write some follow up articles about auto-updating and code signing!
+
+
+2
+ likes
+Like
+Reply
+ 
+ 
+erikhofer profile image
+Erik Hofer 
+•
+29 Apr 21
+
+Ah thanks, fixed the draft typo.
+
+I've seen the matrix build before but it didn't come to mind at the time. Thanks for the addition, it's much more concise!
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+abhi0725 profile image
+Abhishek Chakravarty
+•
+26 Oct 21
+
+Hi @erikhofer thanks for the article. One thing I want to know: Can this be done with private repo?
+
+
+2
+ likes
+Like
+Reply
+ 
+ 
+erikhofer profile image
+Erik Hofer 
+•
+3 Nov 21
+
+Thanks! I haven't tried it yet but I think yes.
+If you need to use a special authToken, this can be configured: js.electronforge.io/publisher/gith...
+Also note that GitHub Actions has an execution time quota for private repos, see github.com/pricing
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+asrivdev profile image
+Ashish Srivastava
+•
+2 Dec 21 • Edited on 2 Dec
+
+I am trying this on a private repo. All the steps run fine including the Release step, but I dont see any other files in assets (I mean an executable for the electron app after publishing) . See attached image.
+
+
+Like
+Reply
+ 
+ 
+kashi_zu profile image
+Mak
+•
+2 Feb 21
+
+Great article. How long did it take before the executables were added to your release?
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+erikhofer profile image
+Erik Hofer 
+•
+9 Mar 21
+
+Thanks! It mainly depends on the build time of the application, in the example it's about 3 minutes.
+
+
+3
+ likes
+Like
+Reply
+ 
+ 
+thanhlm profile image
+Thanh Minh
+•
+31 Mar 21
+
+Thanksss. It help me lots
+
+
+2
+ likes
+Like
+Reply
+ 
+ 
+ldiasdev profile image
+Luis Gustavo de Oliveira Dias
+•
+4 Oct 21
+
+Great article! It was exactly what I was looking for.
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+tanner profile image
+Tanner T
+•
+4 Oct 22
+
+Receiving the following error when running build.yml
+
+Run npm run make npm ERR! missing script: make
+
+
+1
+ like
+Like
+Reply
+ 
+ 
+erikhofer profile image
+Erik Hofer 
+•
+5 Oct 22
+
+Do you have a script named make in your package.json like here github.com/erikhofer/electron-publ... ?
+
+You could also use npx electron-forge make instead of npm run make if you want no extra script for it.
+
+
+1
+ like
+Like
+Reply
+Code of Conduct • Report abuse
+profile
+Algolia
+PROMOTED
+
+Algolia alt
+
+Use Algolia APIs to build search & discovery within your stack.
+Algolia offers hosted search API, UI libraries, CLI and client libraries to help you build search and discovery experiences.
+
+Dig in with 1 million records & all premium features for FREE.
+
+Start my project
+
+Read next
+vkagklis profile image
+Why Migrate to Angular Standalone Components
+Vasileios Kagklis 🅰 - Sep 21
+
+frantchessico profile image
+Exploring the `flat()` Method in JavaScript
+Francisco Inoque - Sep 20
+
+barrymichaeldoyle profile image
+React Native Tutorial: How to Implement a Celebration Confetti Burst
+Barry Michael Doyle - Sep 19
+
+cypriantinasheaarons profile image
+Software Developers with Money
+CyprianTinasheAarons - Sep 24
+
+
+Erik Hofer
+Follow
+LOCATION
+Germany
+JOINED
+4 Aug 2020
+More from Erik Hofer
+Publish to DokuWiki programmatically without any API
+#javascript #dokuwiki #tutorial #node
+DEV Community
+
+OpenAI
+
+How will ChatGPT will affect the future of coding?
+We're not sure either, but the DEV community is figuring this out together.
+
+Create a DEV account. It only takes a minute and is 100% free.
+New AI content every day.
+
+name: Release
+on:
+  release:
+    types:
+      - created
+
+jobs:
+
+  publish_on_linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2       
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+
+  publish_on_mac:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+
+  publish_on_win:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2       
+    - uses: actions/setup-node@master
+      with:
+        node-version: 14
+    - name: install dependencies
+      run: npm install
+    - name: publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: npm run publish
+DEV Community — A constructive and inclusive social network for software developers. With you every step of your journey.
+
+Home
+Podcasts
+Videos
+Tags
+FAQ
+Forem Shop
+Advertise on DEV
+About
+Contact
+Guides
+Software comparisons
+Code of Conduct
+Privacy Policy
+Terms of use
+Built on Forem — the open source software that powers DEV and other inclusive communities.
+
+Made with love and Ruby on Rails. DEV Community © 2016 - 2023.
